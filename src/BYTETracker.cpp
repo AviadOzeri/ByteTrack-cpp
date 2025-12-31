@@ -26,6 +26,24 @@ byte_track::BYTETracker::~BYTETracker()
 {
 }
 
+std::vector<byte_track::BYTETracker::STrackPtr> byte_track::BYTETracker::getAllActiveTracks() const
+{
+    std::vector<STrackPtr> all_tracks;
+    all_tracks.reserve(tracked_stracks_.size() + lost_stracks_.size());
+    
+    // Add tracked (matched) tracks
+    for (const auto& track : tracked_stracks_) {
+        all_tracks.push_back(track);
+    }
+    
+    // Add lost (predicted) tracks
+    for (const auto& track : lost_stracks_) {
+        all_tracks.push_back(track);
+    }
+    
+    return all_tracks;
+}
+
 std::vector<byte_track::BYTETracker::STrackPtr> byte_track::BYTETracker::update(const std::vector<Object>& objects)
 {
     ////////////////// Step 1: Get detections //////////////////

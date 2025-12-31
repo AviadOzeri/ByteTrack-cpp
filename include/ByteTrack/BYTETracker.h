@@ -26,6 +26,12 @@ public:
 
     std::vector<STrackPtr> update(const std::vector<Object>& objects);
 
+    // Get lost tracks (being predicted but not matched to any detection)
+    const std::vector<STrackPtr>& getLostTracks() const { return lost_stracks_; }
+    
+    // Get all active tracks (tracked + lost, for visualization)
+    std::vector<STrackPtr> getAllActiveTracks() const;
+
 private:
     std::vector<STrackPtr> jointStracks(const std::vector<STrackPtr> &a_tlist,
                                         const std::vector<STrackPtr> &b_tlist) const;
