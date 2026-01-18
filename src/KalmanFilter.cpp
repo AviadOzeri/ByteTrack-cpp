@@ -1,5 +1,6 @@
 #include "ByteTrack/KalmanFilter.h"
 
+#include <cmath>
 #include <cstddef>
 
 byte_track::KalmanFilter::KalmanFilter(const float& std_weight_position,
@@ -40,21 +41,37 @@ void byte_track::KalmanFilter::initiate(StateMean &mean, StateCov &covariance, c
 
 void byte_track::KalmanFilter::predict(StateMean &mean, StateCov &covariance)
 {
+    // Default dt=1.0 (standard frame interval)
+    predict(mean, covariance, 1.0f);
+}
+
+void byte_track::KalmanFilter::predict(StateMean &mean, StateCov &covariance, float dt)
+{
+    // Create motion matrix with current dt
+    Eigen::Matrix<float, 8, 8, Eigen::RowMajor> motion_mat = Eigen::MatrixXf::Identity(8, 8);
+    for (size_t i = 0; i < 4; i++)
+    {
+        motion_mat(i, 4 + i) = dt;
+    }
+
+    // Scale noise by dt (larger dt = more uncertainty)
+    // Position noise scales with dt, velocity noise scales with sqrt(dt)
+    float sqrt_dt = std::sqrt(dt);
     StateMean std;
-    std(0) = std_weight_position_ * mean(3);
-    std(1) = std_weight_position_ * mean(3);
-    std(2) = 1e-2;
-    std(3) = std_weight_position_ * mean(3);
-    std(4) = std_weight_velocity_ * mean(3);
-    std(5) = std_weight_velocity_ * mean(3);
-    std(6) = 1e-5;
-    std(7) = std_weight_velocity_ * mean(3);
+    std(0) = std_weight_position_ * mean(3) * dt;       // x position
+    std(1) = std_weight_position_ * mean(3) * dt;       // y position
+    std(2) = 1e-2f * dt;                                 // aspect ratio
+    std(3) = std_weight_position_ * mean(3) * dt;       // height
+    std(4) = std_weight_velocity_ * mean(3) * sqrt_dt;  // vx (velocity noise scales with sqrt(dt))
+    std(5) = std_weight_velocity_ * mean(3) * sqrt_dt;  // vy
+    std(6) = 1e-5f * sqrt_dt;                           // va
+    std(7) = std_weight_velocity_ * mean(3) * sqrt_dt;  // vh
 
     StateMean tmp = std.array().square();
     StateCov motion_cov = tmp.asDiagonal();
 
-    mean = motion_mat_ * mean.transpose();
-    covariance = motion_mat_ * covariance * (motion_mat_.transpose()) + motion_cov;
+    mean = motion_mat * mean.transpose();
+    covariance = motion_mat * covariance * (motion_mat.transpose()) + motion_cov;
 }
 
 void byte_track::KalmanFilter::update(StateMean &mean, StateCov &covariance, const DetectBox &measurement)

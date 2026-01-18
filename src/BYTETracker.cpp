@@ -1,6 +1,9 @@
 #include "ByteTrack/BYTETracker.h"
 
+#include <algorithm>
 #include <cstddef>
+#include <iomanip>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
@@ -12,13 +15,19 @@ byte_track::BYTETracker::BYTETracker(const int& frame_rate,
                                      const int& track_buffer,
                                      const float& track_thresh,
                                      const float& high_thresh,
-                                     const float& match_thresh) :
+                                     const float& match_thresh,
+                                     const float& max_area_ratio) :
     track_thresh_(track_thresh),
     high_thresh_(high_thresh),
     match_thresh_(match_thresh),
+    max_area_ratio_(max_area_ratio),
     max_time_lost_(static_cast<size_t>(frame_rate / 30.0 * track_buffer)),
     frame_id_(0),
-    track_id_count_(0)
+    track_id_count_(0),
+    expected_dt_ms_(1000.0f / frame_rate),
+    last_timestamp_ms_(-1),
+    current_dt_(1.0f),
+    has_timestamp_(false)
 {
 }
 
@@ -46,8 +55,41 @@ std::vector<byte_track::BYTETracker::STrackPtr> byte_track::BYTETracker::getAllA
 
 std::vector<byte_track::BYTETracker::STrackPtr> byte_track::BYTETracker::update(const std::vector<Object>& objects)
 {
+    // Call the timestamp version with -1 (no timestamp)
+    return update(objects, -1);
+}
+
+std::vector<byte_track::BYTETracker::STrackPtr> byte_track::BYTETracker::update(const std::vector<Object>& objects, int64_t timestamp_ms)
+{
     ////////////////// Step 1: Get detections //////////////////
     frame_id_++;
+
+    // Compute dt from timestamps if available
+    if (timestamp_ms >= 0)
+    {
+        has_timestamp_ = true;
+        if (last_timestamp_ms_ >= 0)
+        {
+            int64_t dt_ms = timestamp_ms - last_timestamp_ms_;
+            if (dt_ms > 0)
+            {
+                // Normalize dt: 1.0 = expected frame interval
+                current_dt_ = static_cast<float>(dt_ms) / expected_dt_ms_;
+                std::cout << "  [DT] dt_ms=" << dt_ms << " normalized=" 
+                          << std::fixed << std::setprecision(2) << current_dt_ << std::endl;
+            }
+            else
+            {
+                current_dt_ = 1.0f;  // Fallback for invalid dt
+            }
+        }
+        last_timestamp_ms_ = timestamp_ms;
+    }
+    else
+    {
+        current_dt_ = 1.0f;  // Default when no timestamp
+        std::cout << "  [DT] NO TIMESTAMP - using dt=1.0" << std::endl;
+    }
 
     // Create new STracks using the result of object detection
     std::vector<STrackPtr> det_stracks;
@@ -85,10 +127,10 @@ std::vector<byte_track::BYTETracker::STrackPtr> byte_track::BYTETracker::update(
 
     strack_pool = jointStracks(active_stracks, lost_stracks_);
 
-    // Predict current pose by KF
+    // Predict current pose by KF with actual dt
     for (auto &strack : strack_pool)
     {
-        strack->predict();
+        strack->predict(current_dt_);
     }
 
     ////////////////// Step 2: First association, with IoU //////////////////
@@ -101,9 +143,15 @@ std::vector<byte_track::BYTETracker::STrackPtr> byte_track::BYTETracker::update(
         std::vector<std::vector<int>> matches_idx;
         std::vector<int> unmatch_detection_idx, unmatch_track_idx;
 
+        std::cout << "  [MATCH] pool=" << strack_pool.size() << " dets=" << det_stracks.size() << std::endl;
+
         const auto dists = calcIouDistance(strack_pool, det_stracks);
         linearAssignment(dists, strack_pool.size(), det_stracks.size(), match_thresh_,
                          matches_idx, unmatch_track_idx, unmatch_detection_idx);
+        
+        std::cout << "  [MATCH] matches=" << matches_idx.size() 
+                  << " unmatched_dets=" << unmatch_detection_idx.size()
+                  << " unmatched_tracks=" << unmatch_track_idx.size() << std::endl;
 
         for (const auto &match_idx : matches_idx)
         {
@@ -240,6 +288,13 @@ std::vector<byte_track::BYTETracker::STrackPtr> byte_track::BYTETracker::update(
             output_stracks.push_back(track);
         }
     }
+
+    // Debug: track state summary
+    std::cout << "  [TRACKER] frame=" << frame_id_ 
+              << " tracked=" << tracked_stracks_.size()
+              << " lost=" << lost_stracks_.size()
+              << " output=" << output_stracks.size()
+              << " next_id=" << track_id_count_ + 1 << std::endl;
 
     return output_stracks;
 }
@@ -438,7 +493,21 @@ std::vector<std::vector<float> > byte_track::BYTETracker::calcIouDistance(const 
         std::vector<float> iou;
         for (size_t j = 0; j < ious[i].size(); j++)
         {
-            iou.push_back(1 - ious[i][j]);
+            float cost = 1 - ious[i][j];
+            
+            // Apply size ratio constraint to prevent matching very different sized boxes
+            float area_a = a_rects[i].width() * a_rects[i].height();
+            float area_b = b_rects[j].width() * b_rects[j].height();
+            if (area_a > 0 && area_b > 0)
+            {
+                float ratio = std::max(area_a, area_b) / std::min(area_a, area_b);
+                if (ratio > max_area_ratio_)
+                {
+                    cost = 1.0f;  // Effectively reject match
+                }
+            }
+            
+            iou.push_back(cost);
         }
         cost_matrix.push_back(iou);
     }

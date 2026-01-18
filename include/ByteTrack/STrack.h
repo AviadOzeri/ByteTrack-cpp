@@ -4,6 +4,7 @@
 #include "ByteTrack/KalmanFilter.h"
 
 #include <cstddef>
+#include <utility>
 
 namespace byte_track
 {
@@ -34,7 +35,11 @@ public:
     void reActivate(const STrack &new_track, const size_t &frame_id, const int &new_track_id = -1);
 
     void predict();
+    void predict(float dt);  // Predict with variable time step
     void update(const STrack &new_track, const size_t &frame_id);
+    
+    // Get velocity for visualization/debugging
+    std::pair<float, float> getVelocity() const;
 
     void markAsLost();
     void markAsRemoved();
@@ -53,7 +58,12 @@ private:
     size_t frame_id_;
     size_t start_frame_id_;
     size_t tracklet_len_;
+    
+    // Peak velocity tracking for lost track prediction
+    float peak_vel_x_;
+    float peak_vel_y_;
 
     void updateRect();
+    void updatePeakVelocity();
 };
 }

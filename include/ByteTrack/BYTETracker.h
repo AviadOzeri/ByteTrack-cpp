@@ -5,6 +5,7 @@
 #include "ByteTrack/Object.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <memory>
@@ -21,10 +22,20 @@ public:
                 const int& track_buffer = 30,
                 const float& track_thresh = 0.5,
                 const float& high_thresh = 0.6,
-                const float& match_thresh = 0.8);
+                const float& match_thresh = 0.8,
+                const float& max_area_ratio = 3.0);
     ~BYTETracker();
 
     std::vector<STrackPtr> update(const std::vector<Object>& objects);
+    
+    // Update with timestamp for variable dt handling
+    std::vector<STrackPtr> update(const std::vector<Object>& objects, int64_t timestamp_ms);
+    
+    // Get current dt (normalized, 1.0 = standard frame interval)
+    float getCurrentDt() const { return current_dt_; }
+    
+    // Get expected dt in milliseconds
+    float getExpectedDtMs() const { return expected_dt_ms_; }
 
     // Get lost tracks (being predicted but not matched to any detection)
     const std::vector<STrackPtr>& getLostTracks() const { return lost_stracks_; }
@@ -69,10 +80,17 @@ private:
     const float track_thresh_;
     const float high_thresh_;
     const float match_thresh_;
+    const float max_area_ratio_;  // Max area ratio for matching constraint
     const size_t max_time_lost_;
 
     size_t frame_id_;
     size_t track_id_count_;
+    
+    // Timestamp handling for variable dt
+    float expected_dt_ms_;      // Expected ms between frames (1000/fps)
+    int64_t last_timestamp_ms_; // Last frame timestamp (-1 if not set)
+    float current_dt_;          // Current dt in normalized units
+    bool has_timestamp_;        // Whether timestamps are being used
 
     std::vector<STrackPtr> tracked_stracks_;
     std::vector<STrackPtr> lost_stracks_;

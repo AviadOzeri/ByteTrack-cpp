@@ -23,6 +23,9 @@ public:
     void initiate(StateMean& mean, StateCov& covariance, const DetectBox& measurement);
 
     void predict(StateMean& mean, StateCov& covariance);
+    
+    // Predict with variable time step (dt=1.0 is standard frame interval)
+    void predict(StateMean& mean, StateCov& covariance, float dt);
 
     void update(StateMean& mean, StateCov& covariance, const DetectBox& measurement);
 
