@@ -21,17 +21,8 @@ else()
   message(FATAL_ERROR "The compiler ${CMAKE_CXX_COMPILER} has no C++17 support. Please use a different C++ compiler.")
 endif()
 
-set(EIGEN_VERSION 3.3)
-find_package(Eigen3 ${EIGEN_VERSION} QUIET)
-if(NOT EIGEN3_FOUND)
-  set(BUILD_TESTING OFF CACHE INTERNAL "")
-  FetchContent_Declare(eigen
-    GIT_REPOSITORY  https://gitlab.com/libeigen/eigen.git
-    GIT_TAG         ${EIGEN_VERSION}
-    GIT_SHALLOW     ON)
-  FetchContent_MakeAvailable(eigen)
-  unset(BUILD_TESTING CACHE)
-endif()
+find_package(ament_cmake REQUIRED)
+find_package(Eigen3 3.3 REQUIRED)
 
 add_library(${PROJECT_NAME} STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src/BYTETracker.cpp
@@ -40,32 +31,49 @@ add_library(${PROJECT_NAME} STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src/Object.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/Rect.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/STrack.cpp
-  )
+)
+
 target_include_directories(${PROJECT_NAME} PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  )
-target_link_libraries(${PROJECT_NAME} Eigen3::Eigen)
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
 
-# Build the tests if the 'BUILD_BYTETRACK_TEST' variable is set to 'ON'
-set(BUILD_BYTETRACK_TEST OFF CACHE BOOL "The flag whether to build the tests or not")
-if(BUILD_BYTETRACK_TEST)
-  enable_testing()
+target_link_libraries(${PROJECT_NAME} PUBLIC Eigen3::Eigen)
 
-  find_package(GTest QUIET)
-  if(NOT GTest_FOUND)
-    message(FATAL_ERROR "GTest not found.")
-  endif()
+# Install headers
+install(DIRECTORY include/
+  DESTINATION include
+)
 
-  add_executable(${PROJECT_NAME}_test
-    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_BYTETracker.cpp
-  )
+# Install library
+install(TARGETS ${PROJECT_NAME}
+  EXPORT ${PROJECT_NAME}Targets
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
 
-  target_link_libraries(${PROJECT_NAME}_test
-    ${PROJECT_NAME}
-    GTest::GTest
-    GTest::Main
-    )
+# Export targets
+install(EXPORT ${PROJECT_NAME}Targets
+  FILE ${PROJECT_NAME}Targets.cmake
+  NAMESPACE ${PROJECT_NAME}::
+  DESTINATION share/${PROJECT_NAME}/cmake
+)
 
-  gtest_discover_tests(${PROJECT_NAME}_test
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/data/YOLOX_ncnn_palace)
-endif()
+# Create and install config file
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
+  INSTALL_DESTINATION share/${PROJECT_NAME}/cmake
+)
+
+install(FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
+  DESTINATION share/${PROJECT_NAME}/cmake
+)
+
+ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
+ament_export_dependencies(Eigen3)
+
+ament_package()
